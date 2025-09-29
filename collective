@@ -1,0 +1,245 @@
+# Splunk App Comparison Queries for auditd Logs
+
+## Search 1: Side-by-side table comparison
+
+This search displays raw log data from both apps side by side, allowing you to visually compare how each app processes the same auditd events.
+
+### Complete SPL Query:
+
+```spl
+index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix) earliest=-14d@d latest=now
+| eval event_id = _time + "_" + host + "_" + coalesce(msg, _raw)
+| stats values(_raw) as raw_log, 
+        values(user) as user, 
+        values(host) as host, 
+        values(action) as action,
+        values(comm) as command,
+        values(exe) as executable,
+        dc(app) as app_count by event_id, app
+| xyseries event_id app raw_log
+| rename "X_splunk_ta_nix" as "X_splunk_ta_nix_Log", 
+         "splunk_ta_nix" as "splunk_ta_nix_Log"
+| table event_id, X_splunk_ta_nix_Log, splunk_ta_nix_Log
+| head 100
+```
+
+### What This Search Does:
+
+**Data collection phase**: The search retrieves all auditd logs from both apps over the last 14 days, creating a unique event identifier combining timestamp, host, and message content to match corresponding events across apps.
+
+**Field extraction and aggregation**: Key auditd fields are extracted (user, host, action, command, executable) and aggregated by both the event identifier and app name. The stats command counts how many apps processed each event to identify events appearing in both or only one app.
+
+**Side-by-side transformation**: The xyseries command pivots the data to create columns for each app, placing X_splunk_ta_nix logs on the left and splunk_ta_nix logs on the right. This allows direct visual comparison of the raw log data as each app receives it.
+
+**Output formatting**: Results are limited to 100 rows for initial review (adjustable via the head command). Each row shows an event with its corresponding raw log from both apps side by side.
+
+### How to Interpret Results:
+
+- **Both columns populated**: Event processed by both apps (expected for most events)
+- **One column empty**: Event only captured by one app, indicating potential data collection differences
+- **Different raw logs**: Parsing or field extraction differences between apps
+- **Identical raw logs**: Both apps receive the same data (validates consistent input)
+
+### Alternative Version (Key Fields Comparison):
+
+If you prefer comparing specific parsed fields rather than raw logs:
+
+```spl
+index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix) earliest=-14d@d latest=now
+| stats values(user) as user,
+        values(host) as host,
+        values(action) as action,
+        values(exe) as executable,
+        values(comm) as command,
+        count as event_count by app, _time
+| eval time_key = _time
+| chart values(user) as user,
+        values(action) as action,
+        values(exe) as executable,
+        first(event_count) as event_count over time_key by app
+| rename "*.X_splunk_ta_nix" as "X_*",
+         "*.splunk_ta_nix" as "Nix_*"
+| table time_key, X_user, Nix_user, X_action, Nix_action, X_executable, Nix_executable
+| head 100
+```
+
+---
+
+## Search 2: Field-level difference analysis
+
+This search performs comprehensive field-level analysis to identify parsing differences, missing fields, and value discrepancies between the two apps.
+
+### Complete SPL Query:
+
+```spl
+index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix) earliest=-14d@d latest=now
+| fieldsummary maxvals=10
+| stats values(count) as event_count,
+        values(distinct_count) as distinct_values,
+        values(app) as present_in_apps,
+        dc(app) as app_count by field
+| eval field_status = case(
+    app_count == 1 AND mvindex(present_in_apps, 0) == "X_splunk_ta_nix", "Only in X_splunk_ta_nix",
+    app_count == 1 AND mvindex(present_in_apps, 0) == "splunk_ta_nix", "Only in splunk_ta_nix",
+    app_count == 2, "Present in both apps",
+    1==1, "Unknown")
+| eval X_event_count = if(field_status == "Only in X_splunk_ta_nix" OR field_status == "Present in both apps", 
+                          mvindex(event_count, 0), 0)
+| eval Nix_event_count = if(field_status == "Only in splunk_ta_nix" OR field_status == "Present in both apps", 
+                             mvindex(event_count, if(app_count==2, 1, 0)), 0)
+| eval X_distinct_values = if(field_status == "Only in X_splunk_ta_nix" OR field_status == "Present in both apps", 
+                               mvindex(distinct_values, 0), 0)
+| eval Nix_distinct_values = if(field_status == "Only in splunk_ta_nix" OR field_status == "Present in both apps", 
+                                 mvindex(distinct_values, if(app_count==2, 1, 0)), 0)
+| eval value_difference = abs(X_distinct_values - Nix_distinct_values)
+| eval coverage_diff_pct = if(field_status == "Present in both apps",
+                               round(abs((X_event_count - Nix_event_count) / X_event_count) * 100, 2),
+                               0)
+| table field, field_status, X_event_count, Nix_event_count, X_distinct_values, Nix_distinct_values, value_difference, coverage_diff_pct
+| sort - value_difference, - coverage_diff_pct
+| where field_status != "Present in both apps" OR value_difference > 0 OR coverage_diff_pct > 5
+```
+
+### What This Search Does:
+
+**Comprehensive field enumeration**: The fieldsummary command analyzes all fields extracted by both apps, capturing field names, event counts where each field appears, and distinct value counts. This provides complete visibility into the field extraction landscape across both apps.
+
+**App presence mapping**: The stats aggregation groups field information by field name and calculates how many apps extract each field. This immediately identifies fields unique to one app versus fields extracted by both, which is critical for understanding parsing differences.
+
+**Categorical classification**: The eval expressions categorize each field into three buckets: fields only in X_splunk_ta_nix, fields only in splunk_ta_nix, and fields present in both apps. This classification enables targeted analysis of field extraction gaps.
+
+**Value-level comparison**: For fields present in both apps, the search calculates distinct value counts and event coverage for each app, then computes the difference. Large differences indicate parsing inconsistencies or field population variations between apps.
+
+**Filtering significant differences**: The final where clause removes fields that are identical between apps and highlights only meaningful differences—fields unique to one app, fields with different distinct value counts, or fields with coverage differences exceeding 5%. This focuses attention on actionable discrepancies.
+
+### How to Interpret Results:
+
+**Field Status Column**:
+- **"Only in X_splunk_ta_nix"**: Field extracted exclusively by the X app, indicating enhanced parsing or additional field extractions not present in the standard app
+- **"Only in splunk_ta_nix"**: Field extracted exclusively by the standard Splunk TA, suggesting the X app may be missing field extractions
+- **"Present in both apps"**: Field extracted by both apps but may have value differences
+
+**Event Count Columns** (X_event_count, Nix_event_count):
+- Shows how many events contain this field in each app
+- Large discrepancies indicate one app extracts the field more consistently
+- Example: X_event_count=10000, Nix_event_count=8000 means X app extracted this field in 2000 more events
+
+**Distinct Values Columns** (X_distinct_values, Nix_distinct_values):
+- Number of unique values for the field in each app
+- Differences suggest parsing variations or normalization differences
+- Example: user field shows 50 distinct values in X app vs 75 in standard app—investigate why
+
+**Value Difference**: Absolute difference in distinct value counts. Higher numbers indicate more significant parsing variations.
+
+**Coverage Diff Pct**: Percentage difference in event coverage between apps. Values above 5% warrant investigation as they indicate meaningful extraction gaps.
+
+### Supplementary Query: Detailed Field Value Comparison
+
+For specific fields showing differences, use this follow-up query:
+
+```spl
+index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix) earliest=-14d@d latest=now
+| eval field_to_compare = <FIELD_NAME>
+| stats values(field_to_compare) as field_values, 
+        count as event_count by app
+| eval X_values = if(app=="X_splunk_ta_nix", field_values, null())
+| eval Nix_values = if(app=="splunk_ta_nix", field_values, null())
+| stats values(X_values) as X_values,
+        values(Nix_values) as Nix_values,
+        sum(event_count) as total_events by field_to_compare
+| eval value_only_in_X = if(isnotnull(X_values) AND isnull(Nix_values), "Yes", "No")
+| eval value_only_in_Nix = if(isnull(X_values) AND isnotnull(Nix_values), "Yes", "No")
+| eval value_in_both = if(isnotnull(X_values) AND isnotnull(Nix_values), "Yes", "No")
+| table field_to_compare, value_only_in_X, value_only_in_Nix, value_in_both, total_events, X_values, Nix_values
+```
+
+Replace `<FIELD_NAME>` with the specific field you want to analyze (e.g., user, action, exe).
+
+---
+
+## Key Differences Between the Two Searches
+
+**Search 1: Side-by-side table comparison**
+- **Purpose**: Visual comparison of actual log data
+- **Use case**: Verify both apps receive identical raw data, spot immediate differences in what each app captures
+- **Output**: Raw logs or key fields displayed in parallel columns
+- **Best for**: Initial validation, troubleshooting data collection issues, confirming event-level parity
+
+**Search 2: Field-level difference analysis**
+- **Purpose**: Systematic analysis of field extraction and parsing differences
+- **Use case**: Identify which fields each app extracts, quantify parsing differences, prioritize remediation efforts
+- **Output**: Statistical summary of field presence, coverage, and value variations
+- **Best for**: Migration planning, field mapping documentation, identifying parsing gaps, compliance verification
+
+---
+
+## Splunk Search Best Practices for App Comparison
+
+### Performance Optimization
+
+**Filter early and specifically**: Always place index, sourcetype, and app filters at the beginning of your search. The base filter `index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix)` ensures Splunk only scans relevant data, dramatically reducing search time and resource consumption.
+
+**Use stats over join**: Joining searches is resource-intensive and has subsearch limitations (50,000 result default). The stats command processes data in a single pass, making it far more efficient for comparison queries. Both provided searches use stats-based approaches for optimal performance.
+
+**Snap time ranges to boundaries**: The `earliest=-14d@d` syntax snaps to midnight 14 days ago, providing consistent time boundaries and enabling better bucket optimization in Splunk's index structure. This improves search speed compared to relative times like `earliest=-14d`.
+
+**Limit initial result sets**: Both queries include mechanisms to limit initial output (head 100 or filtering in Search 2). When first testing, start with smaller time ranges (e.g., `-1d`) and sample sizes, then expand once you verify the query logic.
+
+### Comparison Query Patterns
+
+**Use xyseries for side-by-side display**: The xyseries command transforms app names into column headers, creating intuitive left-right comparisons. Syntax: `xyseries <row_field> <column_field> <value_field>` where app becomes columns.
+
+**Leverage fieldsummary for comprehensive analysis**: The fieldsummary command automatically catalogs all fields without requiring you to name them explicitly. This is invaluable when comparing apps because you don't know in advance which fields differ.
+
+**Calculate differences with eval**: Use eval to compute meaningful metrics like `value_difference = abs(X_distinct_values - Nix_distinct_values)` or `coverage_diff_pct = round(abs((X_count - Nix_count) / X_count) * 100, 2)`. This transforms raw statistics into actionable insights.
+
+**Filter noise with where**: The where clause in Search 2 eliminates identical fields, focusing attention on actual differences. This is crucial when comparing apps because most fields will match—you want to surface only the exceptions.
+
+### Field Extraction Considerations
+
+**Understand index-time vs. search-time extraction**: The app field is indexed at index time, making it fast to filter. Custom field extractions from auditd logs happen at search time. If you frequently compare specific fields, consider moving their extraction to index time for better performance.
+
+**Account for CIM compliance differences**: Splunk TA for Unix and Linux aligns with the Common Information Model (CIM). If X_splunk_ta_nix uses custom field names instead of CIM-normalized fields (like `user` vs `src_user`), your comparison needs to account for these naming differences.
+
+**Check field extraction timing**: Fields extracted by transforms.conf (index time) versus props.conf (search time) may appear differently in field lists. Use `| fieldsummary` to see all extracted fields regardless of extraction method.
+
+### Troubleshooting Tips
+
+**Validate app field values**: Before running complex comparisons, verify app field values exist:
+```spl
+index=unix sourcetype=auditd earliest=-1h latest=now
+| stats count by app
+```
+
+**Check for data gaps**: Use timechart to visualize event distribution:
+```spl
+index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix) earliest=-14d@d latest=now
+| timechart span=1d count by app
+```
+
+**Examine raw events**: When field-level analysis shows differences, inspect actual raw logs:
+```spl
+index=unix sourcetype=auditd app=X_splunk_ta_nix earliest=-1h latest=now
+| head 10
+| table _time, host, app, _raw
+```
+
+**Use Job Inspector**: After running a search, click Job → Inspect Job to analyze performance. Check execution costs, command timings, and memory usage to optimize slow queries.
+
+### Memory and Resource Management
+
+**Limit high-cardinality groupings**: Avoid grouping by too many high-cardinality fields simultaneously (like `stats count by host, user, timestamp, field1, field2, field3...`). This creates millions of unique combinations, consuming excessive memory.
+
+**Use estimated distinct count for large datasets**: Replace `dc(field)` with `estdc(field)` when counting distinct values on very large datasets. The estimated version uses HyperLogLog algorithm, providing approximate counts with significantly less memory.
+
+**Remove unnecessary fields early**: After the initial search filters, use `| fields app, host, user, _time` to discard unneeded fields before transforming commands. This reduces memory overhead for subsequent operations.
+
+### Migration and Validation Workflow
+
+**Phase 1 - Initial validation** (Use Search 1): Verify both apps receive identical raw data and capture the same events. Identify any data collection gaps where one app misses events the other captures.
+
+**Phase 2 - Field mapping** (Use Search 2): Catalog all field extraction differences. Document which fields are unique to each app and which fields have different value distributions. Create a field mapping matrix for migration planning.
+
+**Phase 3 - Value reconciliation**: For fields present in both apps but showing value differences, use the supplementary query to examine actual values. Determine if differences are acceptable (e.g., formatting) or require normalization.
+
+**Phase 4 - Ongoing monitoring**: Schedule saved searches based on these queries to run daily, alerting on unexpected differences. This ensures consistency as both apps process new data over time.
