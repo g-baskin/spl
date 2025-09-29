@@ -1,0 +1,15 @@
+index=unix sourcetype=auditd (app=X_splunk_ta_nix OR app=splunk_ta_nix) earliest=-14d@d latest=now
+| eval event_id = _time + "_" + host + "_" + coalesce(msg, _raw)
+| stats values(_raw) as raw_log, 
+        values(user) as user, 
+        values(host) as host, 
+        values(action) as action,
+        values(comm) as command,
+        values(exe) as executable,
+        dc(app) as app_count by event_id, app
+| xyseries event_id app raw_log
+| rename "X_splunk_ta_nix" as "X_splunk_ta_nix_Log", 
+         "splunk_ta_nix" as "splunk_ta_nix_Log"
+| table event_id, X_splunk_ta_nix_Log, splunk_ta_nix_Log
+| head 100
+
