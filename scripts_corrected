@@ -1,0 +1,183 @@
+#!/bin/bash
+# SFTP Discover Script
+# Lists files on remote server and saves to a file
+
+# Configuration
+SFTP_USER="c_X_logs"
+SFTP_HOST="100.1.1.1"
+SFTP_PORT="37422"
+SFTP_REMOTE_DIR="/shared_Xlogs"
+FILE_PATTERN="*.log"
+DISCOVER_LIST="/tmp/sftp_files_to_collect.txt"
+
+# Check if sshpass is installed
+if ! command -v sshpass &> /dev/null; then
+    echo "ERROR: sshpass is not installed"
+    echo "Install: sudo apt-get install sshpass"
+    exit 1
+fi
+
+# Prompt for password if not set
+if [ -z "$SFTP_PASSWORD" ]; then
+    read -s -p "Enter password for ${SFTP_USER}@${SFTP_HOST}: " SFTP_PASSWORD
+    echo ""
+fi
+
+# Clear previous list
+> "$DISCOVER_LIST"
+
+echo "Discovering files on ${SFTP_HOST}:${SFTP_REMOTE_DIR}..."
+
+# Use SSH to list files (more reliable than SFTP)
+sshpass -p "$SFTP_PASSWORD" ssh -p ${SFTP_PORT} -o StrictHostKeyChecking=no \
+    ${SFTP_USER}@${SFTP_HOST} \
+    "cd ${SFTP_REMOTE_DIR} && ls -1 ${FILE_PATTERN}" 2>/dev/null | sort -u > "$DISCOVER_LIST"
+
+# Count files
+FILE_COUNT=$(wc -l < "$DISCOVER_LIST")
+
+echo "Discovery complete: Found ${FILE_COUNT} files"
+
+if [ "$FILE_COUNT" -gt 0 ]; then
+    echo "Files to collect:"
+    cat "$DISCOVER_LIST"
+else
+    echo "No files found matching pattern: ${FILE_PATTERN}"
+fi
+
+
+############################
+#!/bin/bash
+# SFTP Collect Script
+# Retrieves files from remote server one by one
+
+# Configuration
+SFTP_USER="c_X_logs"
+SFTP_HOST="100.1.1.1"
+SFTP_PORT="37422"
+SFTP_REMOTE_DIR="/shared_Xlogs"
+DISCOVER_LIST="/tmp/sftp_files_to_collect.txt"
+LOCAL_DOWNLOAD_DIR="/opt/splunk/incoming/server2"
+PROCESSED_LIST="/tmp/sftp_processed.txt"
+
+# Check if sshpass is installed
+if ! command -v sshpass &> /dev/null; then
+    echo "ERROR: sshpass is not installed"
+    echo "Install: sudo apt-get install sshpass"
+    exit 1
+fi
+
+# Prompt for password if not set
+if [ -z "$SFTP_PASSWORD" ]; then
+    read -s -p "Enter password for ${SFTP_USER}@${SFTP_HOST}: " SFTP_PASSWORD
+    echo ""
+fi
+
+# Create directories
+mkdir -p "$LOCAL_DOWNLOAD_DIR"
+touch "$PROCESSED_LIST"
+
+# Check if discovery list exists
+if [ ! -f "$DISCOVER_LIST" ]; then
+    echo "ERROR: Discovery list not found: $DISCOVER_LIST"
+    echo "Run sftp_discover.sh first!"
+    exit 1
+fi
+
+TOTAL_FILES=$(wc -l < "$DISCOVER_LIST")
+
+if [ "$TOTAL_FILES" -eq 0 ]; then
+    echo "No files to collect"
+    exit 0
+fi
+
+echo "Starting collection of ${TOTAL_FILES} files from ${SFTP_HOST}..."
+echo "Files will be saved to: ${LOCAL_DOWNLOAD_DIR}"
+
+COUNTER=0
+SUCCESS_COUNT=0
+FAIL_COUNT=0
+
+# Read and retrieve each file
+while IFS= read -r FILENAME; do
+    [ -z "$FILENAME" ] && continue
+    
+    COUNTER=$((COUNTER + 1))
+    
+    # Skip if already processed
+    if grep -Fxq "$FILENAME" "$PROCESSED_LIST"; then
+        echo "[$COUNTER/$TOTAL_FILES] Skipping (already processed): $FILENAME"
+        continue
+    fi
+    
+    echo "[$COUNTER/$TOTAL_FILES] Retrieving: $FILENAME"
+    
+    REMOTE_PATH="${SFTP_REMOTE_DIR}/${FILENAME}"
+    LOCAL_PATH="${LOCAL_DOWNLOAD_DIR}/${FILENAME}"
+    
+    # Download the file
+    sshpass -p "$SFTP_PASSWORD" sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no \
+        ${SFTP_USER}@${SFTP_HOST}:${REMOTE_PATH} ${LOCAL_PATH} 2>/dev/null
+    
+    if [ $? -eq 0 ] && [ -f "$LOCAL_PATH" ]; then
+        echo "  ✓ Success: $FILENAME"
+        echo "$FILENAME" >> "$PROCESSED_LIST"
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+        echo "  ✗ Failed: $FILENAME"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+    
+done < "$DISCOVER_LIST"
+
+echo ""
+echo "Collection complete!"
+echo "  Successful: ${SUCCESS_COUNT}"
+echo "  Failed: ${FAIL_COUNT}"
+echo "  Downloaded to: ${LOCAL_DOWNLOAD_DIR}"
+##################RUNNER##############
+#!/bin/bash
+# SFTP Runner Script
+# Runs discover and collect with one password prompt
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "======================================"
+echo "SFTP File Collection Process"
+echo "======================================"
+echo ""
+
+# Prompt for password once
+read -s -p "Enter password for c_X_logs@100.1.1.1: " SFTP_PASSWORD
+echo ""
+echo ""
+
+# Export for child scripts
+export SFTP_PASSWORD
+
+# Step 1: Discover
+echo "Step 1: Discovering files..."
+"${SCRIPT_DIR}/sftp_discover.sh"
+
+if [ $? -ne 0 ]; then
+    echo "Discovery failed!"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo ""
+
+# Step 2: Collect
+echo "Step 2: Collecting files..."
+"${SCRIPT_DIR}/sftp_collect.sh"
+
+if [ $? -ne 0 ]; then
+    echo "Collection failed!"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo "Process complete!"
+echo "======================================"
