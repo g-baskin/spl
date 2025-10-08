@@ -1,0 +1,356 @@
+###################
+#####DISCOVERY#####
+###################
+#!/bin/bash
+# SFTP Discover Script
+# Lists files on server2 and saves to a file for the collect script to process
+
+# Configuration
+SFTP_USER="c_X_logs"
+SFTP_HOST="100.1.1.1"
+SFTP_PORT="37422"
+SFTP_REMOTE_DIR="/shared_Xlogs"
+FILE_PATTERN="*.log"  # Pattern to match files (use * for all files)
+DISCOVER_LIST="/tmp/sftp_files_to_collect.txt"
+
+# Check if sshpass is installed
+if ! command -v sshpass &> /dev/null; then
+    echo "ERROR: sshpass is not installed"
+    echo "Install it with: sudo apt-get install sshpass (Ubuntu/Debian)"
+    echo "               or: sudo yum install sshpass (RHEL/CentOS)"
+    exit 1
+fi
+
+# Check if password is already set in environment, otherwise prompt
+if [ -z "$SFTP_PASSWORD" ]; then
+    read -s -p "Enter password for ${SFTP_USER}@${SFTP_HOST}: " SFTP_PASSWORD
+    echo ""  # New line after password input
+fi
+
+# Clear previous discovery list
+> "$DISCOVER_LIST"
+
+echo "Discovering files on ${SFTP_HOST}:${SFTP_REMOTE_DIR}..."
+
+# Connect via SFTP and list files
+sshpass -p "$SFTP_PASSWORD" sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no -b - ${SFTP_USER}@${SFTP_HOST} <<EOF 2>/dev/null | grep -v "^sftp>" | grep -v "^Connecting" | grep "${FILE_PATTERN}" | awk '{print $NF}' > "$DISCOVER_LIST"
+cd ${SFTP_REMOTE_DIR}
+ls -1
+bye
+EOF
+
+# Count discovered files
+FILE_COUNT=$(wc -l < "$DISCOVER_LIST")
+
+echo "Discovery complete: Found ${FILE_COUNT} files"
+echo "File list saved to: ${DISCOVER_LIST}"
+
+# Display the list
+if [ "$FILE_COUNT" -gt 0 ]; then
+    echo "Files to collect:"
+    cat "$DISCOVER_LIST"
+else
+    echo "No files found matching pattern: ${FILE_PATTERN}"
+fi
+
+###################
+#####COLLECTOR#####
+###################
+#!/bin/bash
+# SFTP Collect Script
+# Retrieves files from server2 one by one and saves to local directory
+# Splunk UF will monitor the local directory
+
+# Configuration
+SFTP_USER="c_X_logs"
+SFTP_HOST="100.1.1.1"
+SFTP_PORT="37422"
+SFTP_REMOTE_DIR="/shared_Xlogs"
+DISCOVER_LIST="/tmp/sftp_files_to_collect.txt"
+LOCAL_DOWNLOAD_DIR="/opt/splunk/incoming/server2"  # Directory Splunk UF monitors
+PROCESSED_LIST="/tmp/sftp_processed.txt"
+
+# Check if sshpass is installed
+if ! command -v sshpass &> /dev/null; then
+    echo "ERROR: sshpass is not installed"
+    echo "Install it with: sudo apt-get install sshpass (Ubuntu/Debian)"
+    echo "               or: sudo yum install sshpass (RHEL/CentOS)"
+    exit 1
+fi
+
+# Check if password is already set in environment, otherwise prompt
+if [ -z "$SFTP_PASSWORD" ]; then
+    read -s -p "Enter password for ${SFTP_USER}@${SFTP_HOST}: " SFTP_PASSWORD
+    echo ""  # New line after password input
+fi
+
+# Create local directory if it doesn't exist
+mkdir -p "$LOCAL_DOWNLOAD_DIR"
+
+# Create processed list if it doesn't exist
+touch "$PROCESSED_LIST"
+
+# Check if discovery list exists
+if [ ! -f "$DISCOVER_LIST" ]; then
+    echo "ERROR: Discovery list not found: $DISCOVER_LIST"
+    echo "Run the discover script first!"
+    exit 1
+fi
+
+# Count files to process
+TOTAL_FILES=$(wc -l < "$DISCOVER_LIST")
+
+if [ "$TOTAL_FILES" -eq 0 ]; then
+    echo "No files to collect"
+    exit 0
+fi
+
+echo "Starting collection of ${TOTAL_FILES} files from ${SFTP_HOST}..."
+echo "Files will be saved to: ${LOCAL_DOWNLOAD_DIR}"
+
+# Counter for progress
+COUNTER=0
+SUCCESS_COUNT=0
+FAIL_COUNT=0
+
+# Read the discovery list line by line and retrieve each file
+while IFS= read -r FILENAME; do
+    # Skip empty lines
+    [ -z "$FILENAME" ] && continue
+    
+    COUNTER=$((COUNTER + 1))
+    
+    # Check if already processed
+    if grep -Fxq "$FILENAME" "$PROCESSED_LIST"; then
+        echo "[$COUNTER/$TOTAL_FILES] Skipping (already processed): $FILENAME"
+        continue
+    fi
+    
+    echo "[$COUNTER/$TOTAL_FILES] Retrieving: $FILENAME"
+    
+    # Download the file
+    REMOTE_PATH="${SFTP_REMOTE_DIR}/${FILENAME}"
+    LOCAL_PATH="${LOCAL_DOWNLOAD_DIR}/${FILENAME}"
+    
+    # Use sftp get command with sshpass
+    sshpass -p "$SFTP_PASSWORD" sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no ${SFTP_USER}@${SFTP_HOST}:${REMOTE_PATH} ${LOCAL_PATH} 2>/dev/null
+    
+    # Check if download was successful
+    if [ $? -eq 0 ] && [ -f "$LOCAL_PATH" ]; then
+        echo "  ✓ Success: $FILENAME"
+        echo "$FILENAME" >> "$PROCESSED_LIST"
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+        echo "  ✗ Failed: $FILENAME"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+    
+done < "$DISCOVER_LIST"
+
+echo ""
+echo "Collection complete!"
+echo "  Successful: ${SUCCESS_COUNT}"
+echo "  Failed: ${FAIL_COUNT}"
+echo "  Downloaded to: ${LOCAL_DOWNLOAD_DIR}"
+
+###################
+#######RUNNER######
+###################
+#!/bin/bash
+# SFTP Runner Script
+# Executes discover and collect in sequence
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "======================================"
+echo "SFTP File Collection Process"
+echo "======================================"
+echo ""
+
+# Prompt for password once
+read -s -p "Enter password for c_X_logs@100.1.1.1: " SFTP_PASSWORD
+echo ""
+echo ""
+
+# Export password for child scripts
+export SFTP_PASSWORD
+
+# Step 1: Discover files
+echo "Step 1: Discovering files..."
+"${SCRIPT_DIR}/sftp_discover.sh"
+
+if [ $? -ne 0 ]; then
+    echo "Discovery failed!"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo ""
+
+# Step 2: Collect files
+echo "Step 2: Collecting files..."
+"${SCRIPT_DIR}/sftp_collect.sh"
+
+if [ $? -ne 0 ]; then
+    echo "Collection failed!"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo "Process complete!"
+echo "======================================"
+
+
+####################
+#####QUICKSTART#####
+####################
+# Quick Start Guide
+
+## Prerequisites
+
+You need to have `sshpass` installed for password authentication.
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install sshpass
+
+# RHEL/CentOS
+sudo yum install sshpass
+```
+
+## Step 1: Test the Connection
+
+```bash
+# Quick test to make sure authentication works
+# You'll be prompted to enter your password
+read -s -p "Password: " PASS && echo "" && sshpass -p "$PASS" sftp -P 37422 -o StrictHostKeyChecking=no c_X_logs@100.1.1.1 <<< "ls /shared_Xlogs"
+```
+
+If this works, you'll see a list of files. If it fails, double-check your password and network access.
+
+## Step 2: Create Local Directory
+
+```bash
+# Create the directory where files will be downloaded
+sudo mkdir -p /opt/splunk/incoming/server2
+
+# Give yourself permissions (or use the splunk user)
+sudo chown $USER:$USER /opt/splunk/incoming/server2
+```
+
+## Step 3: Make Scripts Executable
+
+```bash
+chmod +x sftp_discover.sh
+chmod +x sftp_collect.sh
+chmod +x sftp_runner.sh
+```
+
+## Step 4: Run the Scripts
+
+```bash
+# Recommended: Run both scripts together (prompts for password once)
+./sftp_runner.sh
+
+# Or run them individually (each will prompt for password)
+./sftp_discover.sh    # Lists files
+./sftp_collect.sh     # Downloads files
+```
+
+## Expected Output
+
+### Runner Script
+```
+======================================
+SFTP File Collection Process
+======================================
+
+Enter password for c_X_logs@100.1.1.1: [password not shown]
+
+Step 1: Discovering files...
+Discovering files on 100.1.1.1:/shared_Xlogs...
+Discovery complete: Found 5 files
+File list saved to: /tmp/sftp_files_to_collect.txt
+Files to collect:
+app.log
+error.log
+access.log
+system.log
+debug.log
+
+======================================
+
+Step 2: Collecting files...
+Starting collection of 5 files from 100.1.1.1...
+Files will be saved to: /opt/splunk/incoming/server2
+[1/5] Retrieving: app.log
+  ✓ Success: app.log
+[2/5] Retrieving: error.log
+  ✓ Success: error.log
+[3/5] Retrieving: access.log
+  ✓ Success: access.log
+[4/5] Retrieving: system.log
+  ✓ Success: system.log
+[5/5] Retrieving: debug.log
+  ✓ Success: debug.log
+
+Collection complete!
+  Successful: 5
+  Failed: 0
+  Downloaded to: /opt/splunk/incoming/server2
+
+======================================
+Process complete!
+======================================
+```
+
+## Verify Files Were Downloaded
+
+```bash
+ls -lh /opt/splunk/incoming/server2/
+```
+
+You should see all the .log files that were on the remote server.
+
+## Schedule with Cron
+
+To run automatically every 15 minutes, you need to set the password as an environment variable since cron cannot prompt interactively:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add this line
+*/15 * * * * export SFTP_PASSWORD='your_password'; /path/to/sftp_runner.sh >> /var/log/sftp_collection.log 2>&1
+```
+
+**Security Warning:** Storing passwords in crontab is not ideal. For production, strongly consider setting up SSH key authentication instead.
+
+## Troubleshooting
+
+### "sshpass: command not found"
+Install sshpass (see Prerequisites above)
+
+### "Permission denied" or authentication failure
+- Check your password is correct
+- Verify the username c_X_logs has access to 100.1.1.1
+- Check firewall allows port 37422
+- Try manual connection: `sftp -P 37422 c_X_logs@100.1.1.1`
+
+### "No such file or directory: /shared_Xlogs"
+- Verify the path exists on the remote server
+- Check your user has permission to read that directory
+
+### Files not appearing in /opt/splunk/incoming/server2
+- Check directory exists and you have write permissions
+- Look at the script output for error messages
+- Verify `LOCAL_DOWNLOAD_DIR` in sftp_collect.sh is correct
+
+## Next Steps
+
+Once files are being downloaded successfully:
+1. Configure your Splunk Universal Forwarder to monitor `/opt/splunk/incoming/server2`
+2. Set up proper log rotation for downloaded files
+3. Consider moving to SSH key authentication for better security
