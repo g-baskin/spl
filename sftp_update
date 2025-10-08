@@ -1,0 +1,370 @@
+#######
+# SFTP File Collection Scripts
+
+Two-phase file collection system inspired by Cribl's collector pattern. Files are downloaded to a local directory for Splunk Universal Forwarder monitoring.
+
+## Overview
+
+- **Script 1 (Discover)**: Lists files on server2 and creates a file list
+- **Script 2 (Collect)**: Downloads each file one by one to a local directory
+- **Splunk UF**: Monitors the local directory and forwards data to Splunk
+
+## Architecture
+
+```
+server1 (runs scripts)  →  SFTP  →  server2 (file source)
+        ↓
+    Local Directory (/opt/splunk/incoming/server2)
+        ↓
+    Splunk UF (monitors directory)
+        ↓
+    Splunk Indexer
+```
+
+## Setup
+
+### 1. Configure SSH Key Authentication
+
+```bash
+# On server1, generate SSH key if you don't have one
+ssh-keygen -t rsa -b 4096
+
+# Copy public key to server2
+ssh-copy-id your_username@server2.example.com
+
+# Test connection (should not prompt for password)
+ssh your_username@server2.example.com "echo 'Connection successful'"
+```
+
+### 2. Update Script Configuration
+
+Edit both `sftp_discover.sh` and `sftp_collect.sh` to set:
+
+```bash
+SFTP_USER="your_username"              # Your username on server2
+SFTP_HOST="server2.example.com"        # Hostname or IP of server2
+SFTP_REMOTE_DIR="/path/to/files"       # Directory on server2 containing files
+```
+
+In `sftp_discover.sh`, also set:
+```bash
+FILE_PATTERN="*.log"                    # File pattern to match (*.log, *.txt, etc.)
+```
+
+In `sftp_collect.sh`, also set:
+```bash
+LOCAL_DOWNLOAD_DIR="/opt/splunk/incoming/server2"  # Local directory for downloads
+```
+
+### 3. Create Local Download Directory
+
+```bash
+sudo mkdir -p /opt/splunk/incoming/server2
+sudo chown splunk:splunk /opt/splunk/incoming/server2  # If running as splunk user
+# Or set appropriate permissions for your user
+chmod 755 /opt/splunk/incoming/server2
+```
+
+### 4. Make Scripts Executable
+
+```bash
+chmod +x sftp_discover.sh
+chmod +x sftp_collect.sh
+chmod +x sftp_runner.sh
+```
+
+## Usage
+
+### Option 1: Run Scripts Individually
+
+```bash
+# Step 1: Discover files on server2
+./sftp_discover.sh
+
+# Step 2: Collect/download the discovered files
+./sftp_collect.sh
+```
+
+### Option 2: Run Both Scripts Together
+
+```bash
+./sftp_runner.sh
+```
+
+### Option 3: Schedule with Cron
+
+```bash
+# Edit crontab
+crontab -e
+
+# Run every 5 minutes
+*/5 * * * * /path/to/sftp_runner.sh >> /var/log/sftp_collection.log 2>&1
+
+# Run daily at 2 AM
+0 2 * * * /path/to/sftp_runner.sh >> /var/log/sftp_collection.log 2>&1
+```
+
+## How It Works
+
+### Discovery Phase (`sftp_discover.sh`)
+
+1. Connects to server2 via SFTP
+2. Lists files matching the pattern in the remote directory
+3. Saves the file list to `/tmp/sftp_files_to_collect.txt`
+4. Displays count and filenames found
+
+### Collection Phase (`sftp_collect.sh`)
+
+1. Reads the discovery list from `/tmp/sftp_files_to_collect.txt`
+2. For each file in the list:
+   - Checks if already processed (in `/tmp/sftp_processed.txt`)
+   - Downloads file via SFTP to local directory
+   - Marks file as processed on success
+3. Displays progress and summary
+
+### Key Features
+
+- **Idempotent**: Tracks processed files to avoid re-downloading
+- **Progress tracking**: Shows current file number and total count
+- **Error handling**: Continues on failures and reports summary
+- **Simple integration**: Splunk UF monitors the download directory
+
+## Splunk Universal Forwarder Configuration
+
+Configure your Splunk UF to monitor the download directory:
+
+```ini
+# $SPLUNK_HOME/etc/system/local/inputs.conf
+[monitor:///opt/splunk/incoming/server2]
+disabled = false
+sourcetype = your_sourcetype
+index = your_index
+# Optional: Delete files after indexing
+# crcSalt = <SOURCE>
+```
+
+## File Management
+
+The scripts use these temporary files:
+
+- `/tmp/sftp_files_to_collect.txt` - Current discovery list
+- `/tmp/sftp_processed.txt` - History of processed files
+
+To reset and re-download all files:
+
+```bash
+rm /tmp/sftp_processed.txt
+```
+
+## Troubleshooting
+
+### SSH/SFTP Connection Issues
+
+```bash
+# Test SSH connection
+ssh -v your_username@server2.example.com
+
+# Test SFTP connection
+sftp your_username@server2.example.com
+```
+
+### Permission Issues
+
+```bash
+# Check local directory permissions
+ls -ld /opt/splunk/incoming/server2
+
+# Check if you can write to the directory
+touch /opt/splunk/incoming/server2/test.txt
+```
+
+### No Files Discovered
+
+- Check `FILE_PATTERN` matches your files
+- Verify `SFTP_REMOTE_DIR` path is correct
+- Ensure you have read permissions on server2
+
+### Files Not Downloading
+
+- Check network connectivity between servers
+- Verify SFTP user has read permissions on server2
+- Check available disk space on server1
+
+## Advanced Customization
+
+### Filter by File Age
+
+Add to `sftp_discover.sh`:
+
+```bash
+# Only list files modified in last 24 hours
+ssh ${SFTP_USER}@${SFTP_HOST} "find ${SFTP_REMOTE_DIR} -type f -name '${FILE_PATTERN}' -mtime -1"
+```
+
+### Handle Compressed Files
+
+Modify `sftp_collect.sh` to decompress during download:
+
+```bash
+# For .gz files
+sftp ${SFTP_USER}@${SFTP_HOST}:${REMOTE_PATH} - 2>/dev/null | gunzip > ${LOCAL_PATH%.gz}
+```
+
+### Delete Source Files After Collection
+
+Add to `sftp_collect.sh` after successful download:
+
+```bash
+if [ $? -eq 0 ]; then
+    ssh ${SFTP_USER}@${SFTP_HOST} "rm ${REMOTE_PATH}"
+fi
+```
+
+## Security Considerations
+
+- Use SSH key authentication (never hardcode passwords)
+- Restrict SSH key permissions: `chmod 600 ~/.ssh/id_rsa`
+- Use dedicated service account with minimal permissions
+- Consider firewall rules to restrict SFTP access
+- Regularly rotate SSH keys
+- Monitor the processed list file size and rotate periodically
+
+###############
+
+#!/bin/bash
+# SFTP Collect Script
+# Retrieves files from server2 one by one and saves to local directory
+# Splunk UF will monitor the local directory
+
+# Configuration
+SFTP_USER="c_X_logs"
+SFTP_HOST="100.1.1.1"
+SFTP_PORT="37422"
+SFTP_REMOTE_DIR="/shared_Xlogs"
+DISCOVER_LIST="/tmp/sftp_files_to_collect.txt"
+LOCAL_DOWNLOAD_DIR="/opt/splunk/incoming/server2"  # Directory Splunk UF monitors
+PROCESSED_LIST="/tmp/sftp_processed.txt"
+
+# Check if password is set in environment variable
+if [ -z "$SSHPASS" ]; then
+    echo "ERROR: SSHPASS environment variable is not set"
+    echo "Set it with: export SSHPASS='your_password'"
+    exit 1
+fi
+
+# Check if sshpass is installed
+if ! command -v sshpass &> /dev/null; then
+    echo "ERROR: sshpass is not installed"
+    echo "Install it with: sudo apt-get install sshpass (Ubuntu/Debian)"
+    echo "               or: sudo yum install sshpass (RHEL/CentOS)"
+    exit 1
+fi
+
+# Create local directory if it doesn't exist
+mkdir -p "$LOCAL_DOWNLOAD_DIR"
+
+# Create processed list if it doesn't exist
+touch "$PROCESSED_LIST"
+
+# Check if discovery list exists
+if [ ! -f "$DISCOVER_LIST" ]; then
+    echo "ERROR: Discovery list not found: $DISCOVER_LIST"
+    echo "Run the discover script first!"
+    exit 1
+fi
+
+# Count files to process
+TOTAL_FILES=$(wc -l < "$DISCOVER_LIST")
+
+if [ "$TOTAL_FILES" -eq 0 ]; then
+    echo "No files to collect"
+    exit 0
+fi
+
+echo "Starting collection of ${TOTAL_FILES} files from ${SFTP_HOST}..."
+echo "Files will be saved to: ${LOCAL_DOWNLOAD_DIR}"
+
+# Counter for progress
+COUNTER=0
+SUCCESS_COUNT=0
+FAIL_COUNT=0
+
+# Read the discovery list line by line and retrieve each file
+while IFS= read -r FILENAME; do
+    # Skip empty lines
+    [ -z "$FILENAME" ] && continue
+    
+    COUNTER=$((COUNTER + 1))
+    
+    # Check if already processed
+    if grep -Fxq "$FILENAME" "$PROCESSED_LIST"; then
+        echo "[$COUNTER/$TOTAL_FILES] Skipping (already processed): $FILENAME"
+        continue
+    fi
+    
+    echo "[$COUNTER/$TOTAL_FILES] Retrieving: $FILENAME"
+    
+    # Download the file
+    REMOTE_PATH="${SFTP_REMOTE_DIR}/${FILENAME}"
+    LOCAL_PATH="${LOCAL_DOWNLOAD_DIR}/${FILENAME}"
+    
+    # Use sftp get command with sshpass
+    sshpass -e sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no ${SFTP_USER}@${SFTP_HOST}:${REMOTE_PATH} ${LOCAL_PATH} 2>/dev/null
+    
+    # Check if download was successful
+    if [ $? -eq 0 ] && [ -f "$LOCAL_PATH" ]; then
+        echo "  ✓ Success: $FILENAME"
+        echo "$FILENAME" >> "$PROCESSED_LIST"
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    else
+        echo "  ✗ Failed: $FILENAME"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+    
+done < "$DISCOVER_LIST"
+
+echo ""
+echo "Collection complete!"
+echo "  Successful: ${SUCCESS_COUNT}"
+echo "  Failed: ${FAIL_COUNT}"
+echo "  Downloaded to: ${LOCAL_DOWNLOAD_DIR}"
+
+
+#######################
+#!/bin/bash
+# SFTP Runner Script
+# Executes discover and collect in sequence
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "======================================"
+echo "SFTP File Collection Process"
+echo "======================================"
+echo ""
+
+# Step 1: Discover files
+echo "Step 1: Discovering files..."
+"${SCRIPT_DIR}/sftp_discover.sh"
+
+if [ $? -ne 0 ]; then
+    echo "Discovery failed!"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo ""
+
+# Step 2: Collect files
+echo "Step 2: Collecting files..."
+"${SCRIPT_DIR}/sftp_collect.sh"
+
+if [ $? -ne 0 ]; then
+    echo "Collection failed!"
+    exit 1
+fi
+
+echo ""
+echo "======================================"
+echo "Process complete!"
+echo "======================================"
