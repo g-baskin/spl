@@ -1,0 +1,40 @@
+SFTP_HOST="100.100.100.100"
+  SFTP_PORT="37422"
+  SFTP_USER="sftp_user"
+  SFTP_PASS="your_password"
+  CRIBL_COLLECT_ARG="/shared_logs/ListValues.log"  # ← Use file from your discovery
+
+  echo "=== DEBUG: Testing Collection ==="
+  echo "Downloading: $CRIBL_COLLECT_ARG"
+  echo ""
+
+  # Extract filename
+  FILENAME=$(basename "$CRIBL_COLLECT_ARG")
+  mkdir -p /tmp/sftp_files
+  TEMP_FILE="/tmp/sftp_files/$FILENAME"
+
+  echo "Temp file will be: $TEMP_FILE"
+  echo ""
+
+  # Download file - SHOW ERRORS this time
+  echo "Running SFTP download..."
+  printf "get %s %s\nbye\n" "$CRIBL_COLLECT_ARG" "$TEMP_FILE" | sshpass -p "$SFTP_PASS" sftp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$SFTP_PORT"
+  "$SFTP_USER@$SFTP_HOST" 2>&1
+
+  echo ""
+  echo "=== Checking if file was downloaded ==="
+  if [ -f "$TEMP_FILE" ]; then
+    FILE_SIZE=$(wc -c < "$TEMP_FILE")
+    LINE_COUNT=$(wc -l < "$TEMP_FILE")
+    echo "✅ File downloaded: $FILE_SIZE bytes, $LINE_COUNT lines"
+    echo ""
+    echo "=== First 5 lines ==="
+    head -5 "$TEMP_FILE"
+    rm -f "$TEMP_FILE"
+  else
+    echo "❌ File was NOT downloaded to $TEMP_FILE"
+    echo "Possible reasons:"
+    echo "  1. File doesn't exist on SFTP server"
+    echo "  2. Wrong path (case sensitive)"
+    echo "  3. Permission denied"
+  fi
