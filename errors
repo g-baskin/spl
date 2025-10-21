@@ -1,4 +1,4 @@
-=== DEBUG: Return Code ===
+ve=== DEBUG: Return Code ===
 255
 
 === DEBUG: STDOUT ===
@@ -126,4 +126,4 @@ TypeError: memoryview: a bytes-like object is required, not 'str'
 sftp> get /shared_logs/server-2025-10-12-1.log -
 Fetching /shared_logs/server-2025-10-12-1.log to -
 sftp> bye
-[cribl@vaslapp236p python_script]$ 
+[cribl@server python_script]$ 
