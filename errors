@@ -85,3 +85,8 @@ security-2025-07-18-1.log
 security-2025-07-20-1.log
 security-2025-07-21-1.log
 security-2025-07-22-1.log
+####################################################
+  File "/python_script/./discover.py", line 36
+    
+    ^
+SyntaxError: unexpected EOF while parsing
