@@ -90,3 +90,20 @@ security-2025-07-22-1.log
     
     ^
 SyntaxError: unexpected EOF while parsing
+
+
+
+
+#########output from running script################
+[cribl@serverp python_script]$ ./discoverv4.py 
+ListValues.log
+ObjectMigration-2025-06-13-1.log
+ObjectMigration-2025-06-17-1.log
+ObjectMigration-2025-06-23-1.log
+ObjectMigration-2025-06-28-1.log
+ObjectMigration-2025-06-30-1.log
+ObjectMigration-2025-07-03-1.log
+ObjectMigration-2025-07-04-1.log
+ObjectMigration-2025-07-08-1.log
+ObjectMigration-2025-07-09-1.log
+ObjectMigration-2025-07-24-1.log
