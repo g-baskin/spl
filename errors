@@ -127,3 +127,17 @@ sftp> get /shared_logs/server-2025-10-12-1.log -
 Fetching /shared_logs/server-2025-10-12-1.log to -
 sftp> bye
 [cribl@server python_script]$ 
+
+
+#######################################
+[cribl@server python_script]$ ./collect_with_debug.py 
+=== DEBUG STDOUT LENGTH ===
+59 bytes
+
+=== DEBUG STDOUT (first 500 chars) ===
+b'sftp> get /shared_logs/server-2025-10-12-1.log -\nsftp> bye\n'
+
+=== DEBUG STDERR ===
+
+sftp> get /shared_logs/server-2025-10-12-1.log -
+sftp> bye
