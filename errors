@@ -44,3 +44,44 @@ Couldn't stat remote file: No such file or directory
 
 
 === FILES FOUND ===
+#########################################################################################################
+=== STDERR (Connection messages) ===
+*******************************************************************************
+*     YOU ARE ACCESSING A U.S. GOVERNMENT (USG) INFORMATION SYSTEM  (IS)      *
+*               THAT IS PROVIDED FOR USG-AUTHORIZED USE ONLY.                 *
+*                                                                             *
+*      BY USING THIS IS (WHICH INCLUDES ANY DEVICE ATTACHED TO THIS IS),      *
+*                 YOU CONSENT TO THE FOLLOWING CONDITIONS:                    *
+*                                                                             *
+*   THE USG  ROUTINELY INTERCEPTS  AND MONITORS COMMUNICATIONS ON THIS IS FOR *
+* PURPOSES INCLUDING,  BUT NOT LIMITED TO, PENETRATION TESTING, COMSEC MONIT- *
+* ORING, NETWORK OPERATIONS  AND  DEFENSE,  PERSONNEL  MISCONDUCT  (PM),  LAW *
+* ENFORCEMENT, AND COUNTERINTELLIGENCE (CI) INVESTIGATIONS.                   *
+*   AT ANY TIME, THE USG MAY INSPECT AND SEIZE DATA STORED ON THIS IS.        *
+*   COMMUNICATIONS USING,  OR DATA STORED ON,  THIS IS ARE NOT  PRIVATE,  ARE *
+* SUBJECT  TO ROUTINE MONITORING, INTERCEPTION,  AND SEARCH,  AND MAY BE DIS- *
+* CLOSED OR USED FOR ANY USG AUTHORIZED PURPOSE.                              *
+*   THIS IS INCLUDES SECURITY MEASURES (e.g., AUTHENTICATION AND ACCESS CONT- *
+* ROLS) TO PROTECT USG INTERESTS--NOT FOR YOUR PERSONAL BENEFIT OR PRIVACY.   *
+*   NOTWITHSTANDING THE ABOVE,  USING THIS IS DOES  NOT CONSTITUTE CONSENT TO *
+* PM, LE, OR CI INVESTIGATIVE SEARCHING OR MONITORING OF THE CONTENT OF PRIV- *
+* ILEGED COMMUNICATIONS, OR WORK PRODUCT, RELATED TO  PERSONAL REPRESENTATION *
+* OR   SERVICES   BY   ATTORNEYS,   PSYCHOTHERAPISTS,  OR  CLERGY,  AND THEIR *
+* ASSISTANTS.   SUCH   COMMUNICATIONS  AND  WORK   PRODUCT  ARE  PRIVATE  AND *
+* CONFIDENTIAL. SEE USER AGREEMENT FOR DETAILS.                               *
+*******************************************************************************
+
+Connected to 10.1.9.1.
+
+
+=== FILES FOUND ===
+security-2025-07-11-1.log
+security-2025-07-13-1.log
+security-2025-07-14-1.log
+security-2025-07-15-1.log
+security-2025-07-16-1.log
+security-2025-07-17-1.log
+security-2025-07-18-1.log
+security-2025-07-20-1.log
+security-2025-07-21-1.log
+security-2025-07-22-1.log
