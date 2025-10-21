@@ -1,0 +1,13 @@
+=== DEBUG: Return Code ===
+255
+
+=== DEBUG: STDOUT ===
+''
+
+=== DEBUG: STDERR ===
+'*******************************************************************************\n*     YOU ARE ACCESSING A U.S. GOVERNMENT (USG) INFORMATION SYSTEM  (IS)      *\n*               THAT IS PROVIDED FOR USG-AUTHORIZED USE ONLY.                 *\n*                                                                             *\n*      BY USING THIS IS (WHICH INCLUDES ANY DEVICE ATTACHED TO THIS IS),      *\n*                 YOU CONSENT TO THE FOLLOWING CONDITIONS:                    *\n*                                                                             *\n*   THE USG  ROUTINELY INTERCEPTS  AND MONITORS COMMUNICATIONS ON THIS IS FOR *\n* PURPOSES INCLUDING,  BUT NOT LIMITED TO, PENETRATION TESTING, COMSEC MONIT- *\n* ORING, NETWORK OPERATIONS  AND  DEFENSE,  PERSONNEL  MISCONDUCT  (PM),  LAW *\n* ENFORCEMENT, AND COUNTERINTELLIGENCE (CI) INVESTIGATIONS.                   *\n*   AT ANY TIME, THE USG MAY INSPECT AND SEIZE DATA STORED ON THIS IS.        *\n*   COMMUNICATIONS USING,  OR DATA STORED ON,  THIS IS ARE NOT  PRIVATE,  ARE *\n* SUBJECT  TO ROUTINE MONITORING, INTERCEPTION,  AND SEARCH,  AND MAY BE DIS- *\n* CLOSED OR USED FOR ANY USG AUTHORIZED PURPOSE.                              *\n*   THIS IS INCLUDES SECURITY MEASURES (e.g., AUTHENTICATION AND ACCESS CONT- *\n* ROLS) TO PROTECT USG INTERESTS--NOT FOR YOUR PERSONAL BENEFIT OR PRIVACY.   *\n*   NOTWITHSTANDING THE ABOVE,  USING THIS IS DOES  NOT CONSTITUTE CONSENT TO *\n* PM, LE, OR CI INVESTIGATIVE SEARCHING OR MONITORING OF THE CONTENT OF PRIV- *\n* ILEGED COMMUNICATIONS, OR WORK PRODUCT, RELATED TO  PERSONAL REPRESENTATION *\n* OR   SERVICES   BY   ATTORNEYS,   PSYCHOTHERAPISTS,  OR  CLERGY,  AND THEIR *\n* ASSISTANTS.   SUCH   COMMUNICATIONS  AND  WORK   PRODUCT  ARE  PRIVATE  AND *\n* CONFIDENTIAL. SEE USER AGREEMENT FOR DETAILS.                               *\n*******************************************************************************\n\nc_fdic_logs@100.108.9.182: Permission denied (publickey,password,keyboard-interactive).\nConnection closed\n'
+
+=== DEBUG: Split Lines ===
+Line 0: ''
+
+=== ACTUAL OUTPUT (.log files only) ===
