@@ -121,3 +121,9 @@ Traceback (most recent call last):
   File "/usr/lib64/python3.9/subprocess.py", line 1975, in _communicate
     input_view = memoryview(self._input)
 TypeError: memoryview: a bytes-like object is required, not 'str'
+#############################################
+[cribl@server python_script]$ ./collectv1.py | head -10
+sftp> get /shared_logs/server-2025-10-12-1.log -
+Fetching /shared_logs/server-2025-10-12-1.log to -
+sftp> bye
+[cribl@vaslapp236p python_script]$ 
