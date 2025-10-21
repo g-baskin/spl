@@ -107,3 +107,17 @@ ObjectMigration-2025-07-04-1.log
 ObjectMigration-2025-07-08-1.log
 ObjectMigration-2025-07-09-1.log
 ObjectMigration-2025-07-24-1.log
+
+
+#######################################
+[cribl@server python_script]$ ./collectv1.py | head -20
+Traceback (most recent call last):
+  File "/python_script/./collectv1.py", line 22, in <module>
+    result = subprocess.run(
+  File "/usr/lib64/python3.9/subprocess.py", line 507, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+  File "/usr/lib64/python3.9/subprocess.py", line 1134, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+  File "/usr/lib64/python3.9/subprocess.py", line 1975, in _communicate
+    input_view = memoryview(self._input)
+TypeError: memoryview: a bytes-like object is required, not 'str'
