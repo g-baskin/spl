@@ -1,3 +1,4 @@
+########without debug#########
 #!/usr/bin/env python3
 import subprocess
 import sys
@@ -9,7 +10,7 @@ USER = 'c_X_logs'
 PASS = 'your_password_here'
 DIR = '/shared_Xlogs'
 
-# SFTP commands
+# SFTP commands to send
 sftp_commands = f"""cd {DIR}
 ls -1
 bye
@@ -32,7 +33,6 @@ for line in result.stdout.strip().split('\n'):
     line = line.strip()
     if line.endswith('.log'):
         print(line)
-
 
 ##############worked with debug####################
 #!/usr/bin/env python3
