@@ -24,6 +24,22 @@ bye
         text=True
     )
     
+    # DEBUG: Print everything we got back
+    print("=== DEBUG: Return Code ===")
+    print(result.returncode)
+    
+    print("\n=== DEBUG: STDOUT ===")
+    print(repr(result.stdout))
+    
+    print("\n=== DEBUG: STDERR ===")
+    print(repr(result.stderr))
+    
+    print("\n=== DEBUG: Split Lines ===")
+    lines = result.stdout.strip().split('\n')
+    for i, line in enumerate(lines):
+        print(f"Line {i}: {repr(line)}")
+    
+    print("\n=== ACTUAL OUTPUT (.log files only) ===")
     # Print only .log files (one per line)
     for line in result.stdout.strip().split('\n'):
         if line.endswith('.log'):
